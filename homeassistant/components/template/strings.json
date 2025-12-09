@@ -55,6 +55,14 @@
         "title": "Template alarm control panel"
       },
       "binary_sensor": {
+        "description": "Choose what type of template binary sensor to create.",
+        "menu_options": {
+          "binary_sensor_state_based": "State-based binary sensor",
+          "binary_sensor_trigger_based": "Trigger-based binary sensor"
+        },
+        "title": "Template binary sensor type"
+      },
+      "binary_sensor_state_based": {
         "data": {
           "device_class": "[%key:component::template::common::device_class%]",
           "device_id": "[%key:common::config_flow::data::device%]",
@@ -76,7 +84,45 @@
             "name": "[%key:component::template::common::advanced_options%]"
           }
         },
-        "title": "Template binary sensor"
+        "title": "State-based template binary sensor"
+      },
+      "binary_sensor_trigger_based": {
+        "data": {
+          "actions": "Actions",
+          "auto_off": "Auto off",
+          "conditions": "Conditions",
+          "delay_off": "Delay off",
+          "delay_on": "Delay on",
+          "device_class": "[%key:component::template::common::device_class%]",
+          "device_id": "[%key:common::config_flow::data::device%]",
+          "name": "[%key:common::config_flow::data::name%]",
+          "state": "[%key:component::template::common::state%]",
+          "triggers": "Triggers",
+          "variables": "Variables"
+        },
+        "data_description": {
+          "actions": "Actions to execute when a trigger fires, before updating the sensor state.",
+          "auto_off": "Automatically turn off the binary sensor after this duration.",
+          "conditions": "Conditions that must be met after a trigger fires before the sensor updates.",
+          "delay_off": "Delay before turning off the sensor.",
+          "delay_on": "Delay before turning on the sensor.",
+          "device_id": "[%key:component::template::common::device_id_description%]",
+          "state": "Template that evaluates to the binary sensor state. Has access to trigger variables via `trigger`.",
+          "triggers": "Triggers that will update the binary sensor state. The sensor will only update when a trigger fires.",
+          "variables": "Variables available to templates. Trigger variables are always available via `trigger`."
+        },
+        "sections": {
+          "advanced_options": {
+            "data": {
+              "availability": "[%key:component::template::common::availability%]"
+            },
+            "data_description": {
+              "availability": "[%key:component::template::common::availability_description%]"
+            },
+            "name": "[%key:component::template::common::advanced_options%]"
+          }
+        },
+        "title": "Trigger-based template binary sensor"
       },
       "button": {
         "data": {
@@ -582,7 +628,7 @@
         },
         "data_description": {
           "device_id": "[%key:component::template::common::device_id_description%]",
-          "state": "[%key:component::template::config::step::binary_sensor::data_description::state%]"
+          "state": "[%key:component::template::config::step::binary_sensor_state_based::data_description::state%]"
         },
         "sections": {
           "advanced_options": {
@@ -595,7 +641,43 @@
             "name": "[%key:component::template::common::advanced_options%]"
           }
         },
-        "title": "[%key:component::template::config::step::binary_sensor::title%]"
+        "title": "[%key:component::template::config::step::binary_sensor_state_based::title%]"
+      },
+      "binary_sensor_trigger_based": {
+        "data": {
+          "actions": "[%key:component::template::config::step::binary_sensor_trigger_based::data::actions%]",
+          "auto_off": "[%key:component::template::config::step::binary_sensor_trigger_based::data::auto_off%]",
+          "conditions": "[%key:component::template::config::step::binary_sensor_trigger_based::data::conditions%]",
+          "delay_off": "[%key:component::template::config::step::binary_sensor_trigger_based::data::delay_off%]",
+          "delay_on": "[%key:component::template::config::step::binary_sensor_trigger_based::data::delay_on%]",
+          "device_id": "[%key:common::config_flow::data::device%]",
+          "state": "[%key:component::template::common::state%]",
+          "triggers": "[%key:component::template::config::step::binary_sensor_trigger_based::data::triggers%]",
+          "variables": "[%key:component::template::config::step::binary_sensor_trigger_based::data::variables%]"
+        },
+        "data_description": {
+          "actions": "[%key:component::template::config::step::binary_sensor_trigger_based::data_description::actions%]",
+          "auto_off": "[%key:component::template::config::step::binary_sensor_trigger_based::data_description::auto_off%]",
+          "conditions": "[%key:component::template::config::step::binary_sensor_trigger_based::data_description::conditions%]",
+          "delay_off": "[%key:component::template::config::step::binary_sensor_trigger_based::data_description::delay_off%]",
+          "delay_on": "[%key:component::template::config::step::binary_sensor_trigger_based::data_description::delay_on%]",
+          "device_id": "[%key:component::template::common::device_id_description%]",
+          "state": "[%key:component::template::config::step::binary_sensor_trigger_based::data_description::state%]",
+          "triggers": "[%key:component::template::config::step::binary_sensor_trigger_based::data_description::triggers%]",
+          "variables": "[%key:component::template::config::step::binary_sensor_trigger_based::data_description::variables%]"
+        },
+        "sections": {
+          "advanced_options": {
+            "data": {
+              "availability": "[%key:component::template::common::availability%]"
+            },
+            "data_description": {
+              "availability": "[%key:component::template::common::availability_description%]"
+            },
+            "name": "[%key:component::template::common::advanced_options%]"
+          }
+        },
+        "title": "[%key:component::template::config::step::binary_sensor_trigger_based::title%]"
       },
       "button": {
         "data": {

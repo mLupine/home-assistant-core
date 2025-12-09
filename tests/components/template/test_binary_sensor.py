@@ -1735,3 +1735,324 @@ async def test_flow_preview(
         {"name": "My template", "state": "{{ 'on' }}"},
     )
     assert state["state"] == "on"
+
+
+async def test_trigger_based_config_entry(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test creating a trigger-based binary sensor via config entry."""
+    template_config_entry = MockConfigEntry(
+        data={},
+        domain=template.DOMAIN,
+        options={
+            "name": "My Trigger Sensor",
+            "template_type": "binary_sensor",
+            "trigger_based": True,
+            "triggers": [{"trigger": "event", "event_type": "test_trigger_event"}],
+            "state": "{{ trigger.event.data.state == 'on' }}",
+        },
+        title="My Trigger Sensor",
+    )
+    template_config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(template_config_entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.async_start()
+    await hass.async_block_till_done()
+
+    # Entity should be created
+    entity = entity_registry.async_get("binary_sensor.my_trigger_sensor")
+    assert entity is not None
+
+    # Initial state should be unknown (no trigger fired yet)
+    state = hass.states.get("binary_sensor.my_trigger_sensor")
+    assert state is not None
+    assert state.state == STATE_UNKNOWN
+
+
+async def test_trigger_based_config_entry_fires(
+    hass: HomeAssistant,
+) -> None:
+    """Test trigger-based binary sensor responds to triggers."""
+    template_config_entry = MockConfigEntry(
+        data={},
+        domain=template.DOMAIN,
+        options={
+            "name": "My Trigger Sensor",
+            "template_type": "binary_sensor",
+            "trigger_based": True,
+            "triggers": [{"trigger": "event", "event_type": "test_trigger_event"}],
+            "state": "{{ trigger.event.data.value == 'on' }}",
+        },
+        title="My Trigger Sensor",
+    )
+    template_config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(template_config_entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.async_start()
+    await hass.async_block_till_done()
+
+    # Fire event with state on
+    hass.bus.async_fire("test_trigger_event", {"value": "on"})
+    await hass.async_block_till_done()
+
+    state = hass.states.get("binary_sensor.my_trigger_sensor")
+    assert state.state == STATE_ON
+
+    # Fire event with state off
+    hass.bus.async_fire("test_trigger_event", {"value": "off"})
+    await hass.async_block_till_done()
+
+    state = hass.states.get("binary_sensor.my_trigger_sensor")
+    assert state.state == STATE_OFF
+
+
+async def test_trigger_based_config_entry_with_device_class(
+    hass: HomeAssistant,
+) -> None:
+    """Test trigger-based binary sensor with device class."""
+    template_config_entry = MockConfigEntry(
+        data={},
+        domain=template.DOMAIN,
+        options={
+            "name": "Motion Trigger Sensor",
+            "template_type": "binary_sensor",
+            "trigger_based": True,
+            "triggers": [{"trigger": "event", "event_type": "motion_event"}],
+            "state": "{{ trigger.event.data.motion }}",
+            "device_class": "motion",
+        },
+        title="Motion Trigger Sensor",
+    )
+    template_config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(template_config_entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.async_start()
+    await hass.async_block_till_done()
+
+    hass.bus.async_fire("motion_event", {"motion": True})
+    await hass.async_block_till_done()
+
+    state = hass.states.get("binary_sensor.motion_trigger_sensor")
+    assert state.state == STATE_ON
+    assert state.attributes.get(ATTR_DEVICE_CLASS) == "motion"
+
+
+async def test_trigger_based_config_entry_unload(
+    hass: HomeAssistant,
+) -> None:
+    """Test unloading a trigger-based binary sensor config entry."""
+    template_config_entry = MockConfigEntry(
+        data={},
+        domain=template.DOMAIN,
+        options={
+            "name": "Unload Test Sensor",
+            "template_type": "binary_sensor",
+            "trigger_based": True,
+            "triggers": [{"trigger": "event", "event_type": "unload_test_event"}],
+            "state": "{{ trigger.event.data.state }}",
+        },
+        title="Unload Test Sensor",
+    )
+    template_config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(template_config_entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.async_start()
+    await hass.async_block_till_done()
+
+    # Verify entity exists
+    state = hass.states.get("binary_sensor.unload_test_sensor")
+    assert state is not None
+
+    # Unload the entry
+    assert await hass.config_entries.async_unload(template_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Verify entity becomes unavailable after unload
+    state = hass.states.get("binary_sensor.unload_test_sensor")
+    assert state is not None
+    assert state.state == STATE_UNAVAILABLE
+
+
+async def test_trigger_based_config_entry_reload(
+    hass: HomeAssistant,
+) -> None:
+    """Test reloading a trigger-based binary sensor config entry."""
+    template_config_entry = MockConfigEntry(
+        data={},
+        domain=template.DOMAIN,
+        options={
+            "name": "Reload Test Sensor",
+            "template_type": "binary_sensor",
+            "trigger_based": True,
+            "triggers": [{"trigger": "event", "event_type": "reload_test_event"}],
+            "state": "{{ trigger.event.data.value }}",
+        },
+        title="Reload Test Sensor",
+    )
+    template_config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(template_config_entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.async_start()
+    await hass.async_block_till_done()
+
+    # Fire trigger before reload
+    hass.bus.async_fire("reload_test_event", {"value": True})
+    await hass.async_block_till_done()
+
+    state = hass.states.get("binary_sensor.reload_test_sensor")
+    assert state.state == STATE_ON
+
+    # Reload the entry
+    assert await hass.config_entries.async_reload(template_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # After reload, entity should exist (state may be restored from previous)
+    state = hass.states.get("binary_sensor.reload_test_sensor")
+    assert state is not None
+
+    # Fire trigger after reload - should work and update state
+    hass.bus.async_fire("reload_test_event", {"value": False})
+    await hass.async_block_till_done()
+
+    state = hass.states.get("binary_sensor.reload_test_sensor")
+    assert state.state == STATE_OFF
+
+
+async def test_state_based_config_entry_backwards_compatible(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test state-based binary sensor config entry still works (backwards compatibility)."""
+    # This simulates an existing config entry without trigger_based flag
+    template_config_entry = MockConfigEntry(
+        data={},
+        domain=template.DOMAIN,
+        options={
+            "name": "State Based Sensor",
+            "template_type": "binary_sensor",
+            "state": "{{ states('input_boolean.test') == 'on' }}",
+        },
+        title="State Based Sensor",
+    )
+    template_config_entry.add_to_hass(hass)
+
+    hass.states.async_set("input_boolean.test", "off")
+    await hass.async_block_till_done()
+
+    assert await hass.config_entries.async_setup(template_config_entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.async_start()
+    await hass.async_block_till_done()
+
+    # Entity should be created
+    entity = entity_registry.async_get("binary_sensor.state_based_sensor")
+    assert entity is not None
+
+    state = hass.states.get("binary_sensor.state_based_sensor")
+    assert state.state == STATE_OFF
+
+    # Change input state
+    hass.states.async_set("input_boolean.test", "on")
+    await hass.async_block_till_done()
+
+    state = hass.states.get("binary_sensor.state_based_sensor")
+    assert state.state == STATE_ON
+
+
+async def test_trigger_based_config_entry_with_conditions(
+    hass: HomeAssistant,
+) -> None:
+    """Test trigger-based binary sensor with conditions."""
+    hass.states.async_set("input_boolean.allowed", "on")
+    await hass.async_block_till_done()
+
+    template_config_entry = MockConfigEntry(
+        data={},
+        domain=template.DOMAIN,
+        options={
+            "name": "Conditional Trigger Sensor",
+            "template_type": "binary_sensor",
+            "trigger_based": True,
+            "triggers": [{"trigger": "event", "event_type": "conditional_event"}],
+            "conditions": [
+                {
+                    "condition": "state",
+                    "entity_id": "input_boolean.allowed",
+                    "state": "on",
+                }
+            ],
+            "state": "{{ trigger.event.data.active }}",
+        },
+        title="Conditional Trigger Sensor",
+    )
+    template_config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(template_config_entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.async_start()
+    await hass.async_block_till_done()
+
+    # Trigger when condition is met
+    hass.bus.async_fire("conditional_event", {"active": True})
+    await hass.async_block_till_done()
+
+    state = hass.states.get("binary_sensor.conditional_trigger_sensor")
+    assert state.state == STATE_ON
+
+    # Disable condition
+    hass.states.async_set("input_boolean.allowed", "off")
+    await hass.async_block_till_done()
+
+    # Trigger when condition is not met - state should not change
+    hass.bus.async_fire("conditional_event", {"active": False})
+    await hass.async_block_till_done()
+
+    state = hass.states.get("binary_sensor.conditional_trigger_sensor")
+    assert state.state == STATE_ON  # Still on because condition blocked update
+
+
+async def test_trigger_based_config_entry_with_auto_off(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test trigger-based binary sensor with auto_off."""
+    template_config_entry = MockConfigEntry(
+        data={},
+        domain=template.DOMAIN,
+        options={
+            "name": "Auto Off Sensor",
+            "template_type": "binary_sensor",
+            "trigger_based": True,
+            "triggers": [{"trigger": "event", "event_type": "auto_off_event"}],
+            "state": "{{ True }}",
+            "auto_off": {"seconds": 5},
+        },
+        title="Auto Off Sensor",
+    )
+    template_config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(template_config_entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.async_start()
+    await hass.async_block_till_done()
+
+    # Fire trigger
+    hass.bus.async_fire("auto_off_event", {})
+    await hass.async_block_till_done()
+
+    state = hass.states.get("binary_sensor.auto_off_sensor")
+    assert state.state == STATE_ON
+
+    # Wait for auto off
+    freezer.tick(timedelta(seconds=6))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("binary_sensor.auto_off_sensor")
+    assert state.state == STATE_OFF

@@ -158,8 +158,21 @@ async def async_get_flow_preview_state(
         {"next_step_id": domain},
     )
     await hass.async_block_till_done()
+
+    # Binary sensor has a sub-menu to choose between state-based and trigger-based
+    if domain == "binary_sensor":
+        assert result["type"] is FlowResultType.MENU
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"next_step_id": "binary_sensor_state_based"},
+        )
+        await hass.async_block_till_done()
+        expected_step = "binary_sensor_state_based"
+    else:
+        expected_step = domain
+
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == domain
+    assert result["step_id"] == expected_step
     assert result["errors"] is None
     assert result["preview"] == "template"
 

@@ -22,13 +22,17 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.components.update import UpdateDeviceClass
 from homeassistant.const import (
+    CONF_ACTIONS,
+    CONF_CONDITIONS,
     CONF_DEVICE_CLASS,
     CONF_DEVICE_ID,
     CONF_NAME,
     CONF_STATE,
+    CONF_TRIGGERS,
     CONF_UNIT_OF_MEASUREMENT,
     CONF_URL,
     CONF_VALUE_TEMPLATE,
+    CONF_VARIABLES,
     CONF_VERIFY_SSL,
     Platform,
 )
@@ -56,11 +60,18 @@ from .alarm_control_panel import (
     TemplateCodeFormat,
     async_create_preview_alarm_control_panel,
 )
-from .binary_sensor import async_create_preview_binary_sensor
+from .binary_sensor import (
+    CONF_AUTO_OFF,
+    CONF_DELAY_OFF,
+    CONF_DELAY_ON,
+    async_create_preview_binary_sensor,
+    async_create_preview_trigger_binary_sensor,
+)
 from .const import (
     CONF_ADVANCED_OPTIONS,
     CONF_AVAILABILITY,
     CONF_PRESS,
+    CONF_TRIGGER_BASED,
     CONF_TURN_OFF,
     CONF_TURN_ON,
     DOMAIN,
@@ -409,14 +420,72 @@ def generate_schema(domain: str, flow_type: str) -> vol.Schema:
     return vol.Schema(schema)
 
 
+def generate_trigger_binary_sensor_schema(flow_type: str) -> vol.Schema:
+    """Generate schema for trigger-based binary sensor."""
+    schema: dict[vol.Marker, Any] = {}
+
+    if flow_type == "config":
+        schema[vol.Required(CONF_NAME)] = selector.TextSelector()
+
+    schema.update(
+        {
+            vol.Required(CONF_TRIGGERS): selector.TriggerSelector(),
+            vol.Optional(CONF_CONDITIONS): selector.ConditionSelector(),
+            vol.Optional(CONF_ACTIONS): selector.ActionSelector(),
+            vol.Optional(CONF_VARIABLES): selector.ObjectSelector(),
+            vol.Required(CONF_STATE): selector.TemplateSelector(),
+            vol.Optional(CONF_AUTO_OFF): selector.DurationSelector(),
+            vol.Optional(CONF_DELAY_ON): selector.DurationSelector(),
+            vol.Optional(CONF_DELAY_OFF): selector.DurationSelector(),
+        }
+    )
+
+    if flow_type == "config":
+        schema[vol.Optional(CONF_DEVICE_CLASS)] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[cls.value for cls in BinarySensorDeviceClass],
+                mode=selector.SelectSelectorMode.DROPDOWN,
+                translation_key="binary_sensor_device_class",
+                sort=True,
+            ),
+        )
+
+    schema.update(
+        {
+            vol.Optional(CONF_DEVICE_ID): selector.DeviceSelector(),
+            vol.Optional(CONF_ADVANCED_OPTIONS): section(
+                vol.Schema(
+                    {
+                        vol.Optional(CONF_AVAILABILITY): selector.TemplateSelector(),
+                    }
+                ),
+                {"collapsed": True},
+            ),
+        }
+    )
+
+    return vol.Schema(schema)
+
+
 options_schema = partial(generate_schema, flow_type="options")
 
 config_schema = partial(generate_schema, flow_type="config")
 
+trigger_binary_sensor_options_schema = partial(
+    generate_trigger_binary_sensor_schema, flow_type="options"
+)
+trigger_binary_sensor_config_schema = partial(
+    generate_trigger_binary_sensor_schema, flow_type="config"
+)
+
 
 async def choose_options_step(options: dict[str, Any]) -> str:
     """Return next step_id for options flow according to template_type."""
-    return cast(str, options["template_type"])
+    template_type = cast(str, options["template_type"])
+    # For trigger-based binary sensors, go to the trigger-based options step
+    if template_type == Platform.BINARY_SENSOR and options.get(CONF_TRIGGER_BASED):
+        return "binary_sensor_trigger_based"
+    return template_type
 
 
 def _validate_unit(options: dict[str, Any]) -> None:
@@ -495,6 +564,35 @@ def validate_user_input(
     return _validate_user_input
 
 
+def validate_trigger_binary_sensor_user_input(
+    trigger_based: bool,
+) -> Callable[
+    [SchemaCommonFlowHandler, dict[str, Any]],
+    Coroutine[Any, Any, dict[str, Any]],
+]:
+    """Do post validation of trigger-based binary sensor user input."""
+
+    async def _validate_user_input(
+        _: SchemaCommonFlowHandler,
+        user_input: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Add template type and trigger_based flag to user input.
+
+        Only add trigger_based flag when True to maintain backwards compatibility
+        with existing state-based binary sensor config entries.
+        """
+        result = {"template_type": Platform.BINARY_SENSOR} | user_input
+        if trigger_based:
+            result[CONF_TRIGGER_BASED] = True
+        return result
+
+    return _validate_user_input
+
+
+# Binary sensor sub-menu options
+BINARY_SENSOR_TYPES = ["binary_sensor_state_based", "binary_sensor_trigger_based"]
+
+
 TEMPLATE_TYPES = [
     Platform.ALARM_CONTROL_PANEL,
     Platform.BINARY_SENSOR,
@@ -520,10 +618,21 @@ CONFIG_FLOW = {
         preview="template",
         validate_user_input=validate_user_input(Platform.ALARM_CONTROL_PANEL),
     ),
-    Platform.BINARY_SENSOR: SchemaFlowFormStep(
+    # Binary sensor has a sub-menu for state-based vs trigger-based
+    Platform.BINARY_SENSOR: SchemaFlowMenuStep(BINARY_SENSOR_TYPES),
+    "binary_sensor_state_based": SchemaFlowFormStep(
         config_schema(Platform.BINARY_SENSOR),
         preview="template",
-        validate_user_input=validate_user_input(Platform.BINARY_SENSOR),
+        validate_user_input=validate_trigger_binary_sensor_user_input(
+            trigger_based=False
+        ),
+    ),
+    "binary_sensor_trigger_based": SchemaFlowFormStep(
+        trigger_binary_sensor_config_schema(),
+        preview="template",
+        validate_user_input=validate_trigger_binary_sensor_user_input(
+            trigger_based=True
+        ),
     ),
     Platform.BUTTON: SchemaFlowFormStep(
         config_schema(Platform.BUTTON),
@@ -599,10 +708,21 @@ OPTIONS_FLOW = {
         preview="template",
         validate_user_input=validate_user_input(Platform.ALARM_CONTROL_PANEL),
     ),
+    # State-based binary sensor options (existing behavior)
     Platform.BINARY_SENSOR: SchemaFlowFormStep(
         options_schema(Platform.BINARY_SENSOR),
         preview="template",
-        validate_user_input=validate_user_input(Platform.BINARY_SENSOR),
+        validate_user_input=validate_trigger_binary_sensor_user_input(
+            trigger_based=False
+        ),
+    ),
+    # Trigger-based binary sensor options
+    "binary_sensor_trigger_based": SchemaFlowFormStep(
+        trigger_binary_sensor_options_schema(),
+        preview="template",
+        validate_user_input=validate_trigger_binary_sensor_user_input(
+            trigger_based=True
+        ),
     ),
     Platform.BUTTON: SchemaFlowFormStep(
         options_schema(Platform.BUTTON),
@@ -676,6 +796,8 @@ CREATE_PREVIEW_ENTITY: dict[
 ] = {
     Platform.ALARM_CONTROL_PANEL: async_create_preview_alarm_control_panel,
     Platform.BINARY_SENSOR: async_create_preview_binary_sensor,
+    "binary_sensor_state_based": async_create_preview_binary_sensor,
+    "binary_sensor_trigger_based": async_create_preview_trigger_binary_sensor,
     Platform.COVER: async_create_preview_cover,
     Platform.EVENT: async_create_preview_event,
     Platform.FAN: async_create_preview_fan,
@@ -697,7 +819,7 @@ class TemplateConfigFlowHandler(SchemaConfigFlowHandler, domain=DOMAIN):
     options_flow = OPTIONS_FLOW
     options_flow_reloads = True
 
-    MINOR_VERSION = 2
+    MINOR_VERSION = 3  # Bumped for trigger-based binary sensor support
     VERSION = 1
 
     @callback
@@ -763,8 +885,15 @@ def ws_start_preview(
         if not config_entry:
             raise HomeAssistantError
         template_type = config_entry.options["template_type"]
+        # For trigger-based binary sensors, use the trigger-based options step
+        options_step = template_type
+        if (
+            template_type == Platform.BINARY_SENSOR
+            and config_entry.options.get(CONF_TRIGGER_BASED)
+        ):
+            options_step = "binary_sensor_trigger_based"
         name = config_entry.options["name"]
-        schema = cast(vol.Schema, OPTIONS_FLOW[template_type].schema)
+        schema = cast(vol.Schema, OPTIONS_FLOW[options_step].schema)
         entity_registry = er.async_get(hass)
         entries = er.async_entries_for_config_entry(
             entity_registry, flow_status["handler"]
@@ -810,7 +939,11 @@ def ws_start_preview(
 
     config: dict = msg["user_input"]
     advanced_options = config.pop(CONF_ADVANCED_OPTIONS, {})
-    preview_entity = CREATE_PREVIEW_ENTITY[template_type](
+    # Use the step-specific key for preview entity creation
+    preview_key = template_type
+    if msg["flow_type"] == "options_flow":
+        preview_key = options_step
+    preview_entity = CREATE_PREVIEW_ENTITY[preview_key](
         hass, name, {**config, **advanced_options}
     )
     preview_entity.hass = hass

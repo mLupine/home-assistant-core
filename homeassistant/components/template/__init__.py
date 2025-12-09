@@ -153,9 +153,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(
+    unload_ok = await hass.config_entries.async_unload_platforms(
         entry, (entry.options["template_type"],)
     )
+
+    # Clean up trigger coordinator if this was a trigger-based entry
+    if unload_ok and hasattr(entry, "runtime_data") and entry.runtime_data is not None:
+        coordinator: TriggerUpdateCoordinator = entry.runtime_data
+        coordinator.async_remove()
+
+    return unload_ok
 
 
 async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:

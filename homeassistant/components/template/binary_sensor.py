@@ -21,6 +21,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_FRIENDLY_NAME,
+    CONF_ACTIONS,
+    CONF_CONDITIONS,
     CONF_DEVICE_CLASS,
     CONF_ENTITY_PICTURE_TEMPLATE,
     CONF_FRIENDLY_NAME_TEMPLATE,
@@ -28,9 +30,11 @@ from homeassistant.const import (
     CONF_NAME,
     CONF_SENSORS,
     CONF_STATE,
+    CONF_TRIGGERS,
     CONF_UNIQUE_ID,
     CONF_UNIT_OF_MEASUREMENT,
     CONF_VALUE_TEMPLATE,
+    CONF_VARIABLES,
     STATE_ON,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
@@ -48,6 +52,7 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
 from . import TriggerUpdateCoordinator
+from .const import CONF_TRIGGER_BASED
 from .entity import AbstractTemplateEntity
 from .helpers import (
     async_setup_template_entry,
@@ -94,6 +99,21 @@ BINARY_SENSOR_YAML_SCHEMA = BINARY_SENSOR_COMMON_SCHEMA.extend(
 BINARY_SENSOR_CONFIG_ENTRY_SCHEMA = BINARY_SENSOR_COMMON_SCHEMA.extend(
     TEMPLATE_ENTITY_COMMON_CONFIG_ENTRY_SCHEMA.schema
 )
+
+# Schema for trigger-based binary sensor config entries
+TRIGGER_BINARY_SENSOR_CONFIG_ENTRY_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_TRIGGERS): cv.TRIGGER_SCHEMA,
+        vol.Optional(CONF_CONDITIONS): cv.CONDITIONS_SCHEMA,
+        vol.Optional(CONF_ACTIONS): cv.SCRIPT_SCHEMA,
+        vol.Optional(CONF_VARIABLES): cv.SCRIPT_VARIABLES_SCHEMA,
+        vol.Optional(CONF_AUTO_OFF): vol.Any(cv.positive_time_period, cv.template),
+        vol.Optional(CONF_DELAY_OFF): vol.Any(cv.positive_time_period, cv.template),
+        vol.Optional(CONF_DELAY_ON): vol.Any(cv.positive_time_period, cv.template),
+        vol.Optional(CONF_DEVICE_CLASS): DEVICE_CLASSES_SCHEMA,
+        vol.Required(CONF_STATE): cv.template,
+    }
+).extend(TEMPLATE_ENTITY_COMMON_CONFIG_ENTRY_SCHEMA.schema)
 
 BINARY_SENSOR_LEGACY_YAML_SCHEMA = vol.All(
     cv.deprecated(ATTR_ENTITY_ID),
@@ -150,13 +170,73 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Initialize config entry."""
-    await async_setup_template_entry(
-        hass,
-        config_entry,
-        async_add_entities,
-        StateBinarySensorEntity,
-        BINARY_SENSOR_CONFIG_ENTRY_SCHEMA,
+    if config_entry.options.get(CONF_TRIGGER_BASED):
+        await _async_setup_trigger_entry(hass, config_entry, async_add_entities)
+    else:
+        await async_setup_template_entry(
+            hass,
+            config_entry,
+            async_add_entities,
+            StateBinarySensorEntity,
+            BINARY_SENSOR_CONFIG_ENTRY_SCHEMA,
+        )
+
+
+async def _async_setup_trigger_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Set up trigger-based binary sensor from config entry."""
+    from homeassistant.helpers import trigger as trigger_helper  # noqa: PLC0415
+
+    from .const import CONF_ADVANCED_OPTIONS  # noqa: PLC0415
+
+    options = dict(config_entry.options)
+    options.pop("template_type", None)
+    options.pop(CONF_TRIGGER_BASED, None)
+
+    # Merge advanced options into main options
+    if advanced_options := options.pop(CONF_ADVANCED_OPTIONS, None):
+        options = {**options, **advanced_options}
+
+    # Validate the basic config structure first
+    validated_config = TRIGGER_BINARY_SENSOR_CONFIG_ENTRY_SCHEMA(options)
+
+    # Validate triggers using the trigger helper to ensure proper platform validation
+    # This converts trigger configs (like event_type) to proper Template objects
+    validated_triggers = await trigger_helper.async_validate_trigger_config(
+        hass, validated_config[CONF_TRIGGERS]
     )
+
+    # Create coordinator config - the coordinator handles triggers, conditions, actions
+    coordinator_config = {
+        CONF_TRIGGERS: validated_triggers,
+    }
+    if CONF_CONDITIONS in validated_config:
+        coordinator_config[CONF_CONDITIONS] = validated_config[CONF_CONDITIONS]
+    if CONF_ACTIONS in validated_config:
+        coordinator_config[CONF_ACTIONS] = validated_config[CONF_ACTIONS]
+    if CONF_VARIABLES in validated_config:
+        coordinator_config[CONF_VARIABLES] = validated_config[CONF_VARIABLES]
+
+    # Create the coordinator
+    coordinator = TriggerUpdateCoordinator(hass, coordinator_config)
+
+    # Store coordinator in runtime_data for cleanup on unload
+    config_entry.runtime_data = coordinator
+
+    # Set up the triggers - pass empty config since we're not doing YAML discovery
+    await coordinator.async_setup({})
+
+    # Create entity config - pass all validated config including entity-specific fields
+    entity_config = dict(validated_config)
+    # Add unique_id from config entry
+    entity_config["unique_id"] = config_entry.entry_id
+
+    # Create and add the entity
+    entity = TriggerBinarySensorEntity(hass, coordinator, entity_config)
+    async_add_entities([entity])
 
 
 @callback
@@ -164,6 +244,24 @@ def async_create_preview_binary_sensor(
     hass: HomeAssistant, name: str, config: dict[str, Any]
 ) -> StateBinarySensorEntity:
     """Create a preview sensor."""
+    return async_setup_template_preview(
+        hass, name, config, StateBinarySensorEntity, BINARY_SENSOR_CONFIG_ENTRY_SCHEMA
+    )
+
+
+@callback
+def async_create_preview_trigger_binary_sensor(
+    hass: HomeAssistant, name: str, config: dict[str, Any]
+) -> StateBinarySensorEntity:
+    """Create a preview sensor for trigger-based binary sensor.
+
+    Note: Trigger-based binary sensors cannot be fully previewed since they
+    require actual triggers to fire. This preview uses a state-based preview
+    as a fallback to show the template evaluation without trigger context.
+    """
+    # For preview purposes, we use the state-based preview since we can't
+    # actually fire triggers in preview mode. The state template will be
+    # evaluated but trigger variables won't be available.
     return async_setup_template_preview(
         hass, name, config, StateBinarySensorEntity, BINARY_SENSOR_CONFIG_ENTRY_SCHEMA
     )

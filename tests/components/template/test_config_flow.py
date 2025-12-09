@@ -48,6 +48,37 @@ BINARY_SENSOR_OPTIONS = {
 }
 
 
+async def _navigate_to_template_form(
+    hass: HomeAssistant, result: dict[str, Any], template_type: str
+) -> dict[str, Any]:
+    """Navigate through menus to reach the template form step.
+
+    Handles the binary_sensor sub-menu that allows choosing between
+    state-based and trigger-based binary sensors.
+    """
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": template_type},
+    )
+    await hass.async_block_till_done()
+
+    # Binary sensor has a sub-menu to choose between state-based and trigger-based
+    if template_type == "binary_sensor":
+        assert result["type"] is FlowResultType.MENU
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"next_step_id": "binary_sensor_state_based"},
+        )
+        await hass.async_block_till_done()
+        expected_step = "binary_sensor_state_based"
+    else:
+        expected_step = template_type
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == expected_step
+    return result
+
+
 @pytest.mark.parametrize(
     (
         "template_type",
@@ -298,13 +329,7 @@ async def test_config_flow(
     )
     assert result["type"] is FlowResultType.MENU
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"next_step_id": template_type},
-    )
-    await hass.async_block_till_done()
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == template_type
+    result = await _navigate_to_template_form(hass, result, template_type)
 
     availability = {"advanced_options": {"availability": "{{ True }}"}}
 
@@ -493,13 +518,7 @@ async def test_config_flow_device(
     )
     assert result["type"] is FlowResultType.MENU
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"next_step_id": template_type},
-    )
-    await hass.async_block_till_done()
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == template_type
+    result = await _navigate_to_template_form(hass, result, template_type)
 
     with patch(
         "homeassistant.components.template.async_setup_entry", wraps=async_setup_entry
@@ -837,13 +856,7 @@ async def test_options(
     )
     assert result["type"] is FlowResultType.MENU
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"next_step_id": template_type},
-    )
-    await hass.async_block_till_done()
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == template_type
+    result = await _navigate_to_template_form(hass, result, template_type)
 
     assert get_schema_suggested_value(result["data_schema"].schema, "name") is None
     assert (
@@ -906,13 +919,7 @@ async def test_config_flow_preview(
     )
     assert result["type"] is FlowResultType.MENU
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"next_step_id": template_type},
-    )
-    await hass.async_block_till_done()
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == template_type
+    result = await _navigate_to_template_form(hass, result, template_type)
     assert result["errors"] is None
     assert result["preview"] == "template"
 
@@ -1085,13 +1092,7 @@ async def test_config_flow_preview_bad_input(
     )
     assert result["type"] is FlowResultType.MENU
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"next_step_id": template_type},
-    )
-    await hass.async_block_till_done()
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == template_type
+    result = await _navigate_to_template_form(hass, result, template_type)
     assert result["errors"] is None
     assert result["preview"] == "template"
 
@@ -1155,13 +1156,7 @@ async def test_config_flow_preview_template_startup_error(
     )
     assert result["type"] is FlowResultType.MENU
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"next_step_id": template_type},
-    )
-    await hass.async_block_till_done()
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == template_type
+    result = await _navigate_to_template_form(hass, result, template_type)
     assert result["errors"] is None
     assert result["preview"] == "template"
 
@@ -1234,13 +1229,7 @@ async def test_config_flow_preview_template_error(
     )
     assert result["type"] is FlowResultType.MENU
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"next_step_id": template_type},
-    )
-    await hass.async_block_till_done()
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == template_type
+    result = await _navigate_to_template_form(hass, result, template_type)
     assert result["errors"] is None
     assert result["preview"] == "template"
 
@@ -1300,13 +1289,7 @@ async def test_config_flow_preview_bad_state(
     )
     assert result["type"] is FlowResultType.MENU
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"next_step_id": template_type},
-    )
-    await hass.async_block_till_done()
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == template_type
+    result = await _navigate_to_template_form(hass, result, template_type)
     assert result["errors"] is None
     assert result["preview"] == "template"
 
